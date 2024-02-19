@@ -2,6 +2,10 @@
 
 Replicates the 3D Jacobi iterations benchmark in mojo (git@bitbucket.org:antonl22/jacobitestcode.git).
 
+## v0.1.2
+
+ - small simd correction, cleaning
+
 ## v0.1.1
 
  - README file aded
