@@ -2,6 +2,10 @@
 
 Replicates the 3D Jacobi iterations benchmark in mojo (https://bitbucket.org/antonl22/jacobitestcode/src/master/).
 
+## v0.1.4
+
+ - updated to mojo 24.4.0 (59977802)
+
 ## v0.1.3 
 
  - readme correction
