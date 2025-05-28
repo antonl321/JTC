@@ -1,46 +1,46 @@
-from memory import DTypePointer
+from memory import UnsafePointer
 from memory import memset_zero
-from buffer import Buffer
+from collections.span import Span
 from math import sin, atan, cos, sqrt
 
 #alias sixth =1.0/6.0
 
 
 struct Field[DT: DType]:
-    var data: DTypePointer[DT]
+    var data: UnsafePointer[DT]
     var gx: Int
     var gy: Int
     var gz: Int
     var dsize: Int
     var eigenval: SIMD[DT,1]
-    var bcurr: Buffer[DT]
-    var bnext: Buffer[DT]
+    var bcurr: Span[DT]
+    var bnext: Span[DT]
 
     
-    fn __init__(inout self, gx: Int, gy: Int, gz: Int):
+    fn __init__(out self, gx: Int, gy: Int, gz: Int):
         self.dsize = gx * gy * gz
-        self.data = DTypePointer[DT].alloc(2 * self.dsize)
+        self.data = UnsafePointer[DT].alloc(2 * self.dsize)
         #memset_zero(self.data, self.dsize)
         self.gx = gx
         self.gy = gy
         self.gz = gz
-        self.bcurr = Buffer[DT](self.data, self.dsize)
-        self.bnext = Buffer[DT](self.data +self.dsize,self.dsize )
+        self.bcurr = Span[DT](self.data, self.dsize)
+        self.bnext = Span[DT](self.data + self.dsize,self.dsize )
         self.eigenval = 0.0
 
-    fn __copyinit__[VW:Int = 4](inout self, other: Self):
+    fn __copyinit__[VW:Int = 4](out self, other: Self):
         self.gx = other.gx
         self.gy = other.gy
         self.gz = other.gz
         self.eigenval = other.eigenval
-        self.data = DTypePointer[DT].alloc(2*other.dsize)
+        self.data = UnsafePointer[DT].alloc(2*other.dsize)
         self.dsize = other.dsize
-        self.bcurr = Buffer[DT](self.data, self.dsize)
-        self.bnext = Buffer[DT](self.data +self.dsize,self.dsize )
-        #var sd = self.bcurr #Buffer[0,DT](self.data, self.dsize)
-        #var od = other.bcurr #Buffer[0,DT](other.data, other.dsize)
+        self.bcurr = Span[DT](self.data, self.dsize)
+        self.bnext = Span[DT](self.data +self.dsize,self.dsize )
+        #var sd = self.bcurr #Span[DT](self.data, self.dsize)
+        #var od = other.bcurr #Span[DT](other.data, other.dsize)
         for i in range(0,self.dsize - self.dsize % VW,VW):
-            self.bcurr.store(i, other.bcurr.load[width=VW](i))
+            self.bcurr.store(i, other.bcurr.load[VW](i))
         for i in range(self.dsize - self.dsize % VW, self.dsize):
             self.bcurr[i] = other.bcurr[i]
 
@@ -56,10 +56,10 @@ struct Field[DT: DType]:
             for j in range(1,self.gy-1):
                 for i in range (1,vwgx+1,VW):
                     p = k * (self.gx) * (self.gy) + j * (self.gx) + i
-                    result.data.store(p, self.bcurr.load[width=VW](p) + rhs.bcurr.load[width=VW](p))
+                    result.bcurr.store(p, self.bcurr.load[VW](p) + rhs.bcurr.load[VW](p))
                 for i in range (vwgx+1, self.gx-1):
                     p = k * (self.gx) * (self.gy) + j * (self.gx) + i
-                    result.data.store(p, self.bcurr.load[width=1](p) + rhs.bcurr.load[width=1](p))
+                    result.bcurr.store(p, self.bcurr.load[1](p) + rhs.bcurr.load[1](p))
         return result
 
     fn __del__(owned self):
@@ -67,20 +67,20 @@ struct Field[DT: DType]:
         print("done del")
         
     fn zero(inout self):
-        memset_zero[DT](self.data, self.dsize)
+        self.bcurr.fill(SIMD[DT,1](0.0))
 
     @always_inline
     fn __getitem__(self, x: Int, y: Int, z: Int) -> SIMD[DT,1]:
         var p = z * (self.gx) * (self.gy) + y * (self.gx) + x 
-        return self.data.load(p)
+        return self.data[p]
 
     #@always_inline
     #fn load[nelts:Int=VW](self, x: Int, y: Int, z: Int) -> SIMD[DT,nelts]:
-    #    return self.data.simd_load[nelts](z * (self.gx+2) * (self.gy+2) + y * (self.gx+2) + x)
+    #    return self.data.load[nelts](z * (self.gx+2) * (self.gy+2) + y * (self.gx+2) + x)
 
     @always_inline
     fn __setitem__(self, x: Int, y: Int, z: Int, val: SIMD[DT,1]):
-        return self.data.store(z * (self.gx) * (self.gy) + y * (self.gx) + x, val)
+        self.data[z * (self.gx) * (self.gy) + y * (self.gx) + x] = val
 
     #@always_inline
     #fn store[nelts:Int=VW](self, x: Int, y: Int, z: Int, val: SIMD[DT, nelts]):
@@ -169,10 +169,11 @@ struct Field[DT: DType]:
             for k in range(1,self.gz-1):
                 for j in range(1,self.gy-1):
                     for i in range(1,1+vwgx,VW):
-                        self.bnext.store[width=VW](self.bidx(i,j,k), sixth * (
-                            self.bcurr.load[width=VW](self.bidx(i-1,j  ,k  )) + self.bcurr.load[width=VW](self.bidx(i+1,j  ,k  )) +
-                            self.bcurr.load[width=VW](self.bidx(i  ,j-1,k  )) + self.bcurr.load[width=VW](self.bidx(i  ,j+1,k  )) +
-                            self.bcurr.load[width=VW](self.bidx(i  ,j  ,k-1)) + self.bcurr.load[width=VW](self.bidx(i  ,j  ,k+1))))
+                        var val_to_store = sixth * ( 
+                            self.bcurr.load[VW](self.bidx(i-1,j  ,k  )) + self.bcurr.load[VW](self.bidx(i+1,j  ,k  )) +
+                            self.bcurr.load[VW](self.bidx(i  ,j-1,k  )) + self.bcurr.load[VW](self.bidx(i  ,j+1,k  )) +
+                            self.bcurr.load[VW](self.bidx(i  ,j  ,k-1)) + self.bcurr.load[VW](self.bidx(i  ,j  ,k+1)))
+                        self.bnext.store(self.bidx(i,j,k), val_to_store)
                     for i in range (vwgx+1, self.gx-1):
                         self.bnext[self.bidx(i,j,k)]= sixth * ( 
                             self.bcurr[self.bidx(i-1,j  ,k  )] + self.bcurr[self.bidx(i+1,j  ,k  )] +
@@ -192,7 +193,7 @@ struct Field[DT: DType]:
 
 from tensor import Tensor, TensorSpec, TensorShape
 from utils.index import Index
-from memory import memset_zero
+from memory import memset_zero # Keep for TField for now
 from math import sin, atan, cos, sqrt
 
 #alias sixth =1.0/6.0
@@ -208,16 +209,17 @@ struct TField[DT: DType]:
 
     #alias pi = 4.0*atan[DT,1](1.0)
     
-    fn __init__(inout self, gx: Int, gy: Int, gz: Int):
+    fn __init__(out self, gx: Int, gy: Int, gz: Int):
         self.gsize = gx * gy * gz
-        self.fld = Tensor[DT](2,gx,gy,gz)
+        let shape = TensorShape(2,gx,gy,gz)
+        self.fld = Tensor[DT](shape)
         self.gx = gx
         self.gy = gy
         self.gz = gz
         self.eigenval = 0.0
         self.act = 0
 
-    fn __copyinit__(inout self, other: Self):
+    fn __copyinit__(out self, other: Self):
         self.gx = other.gx
         self.gy = other.gy
         self.gz = other.gz
@@ -312,10 +314,11 @@ struct TField[DT: DType]:
             for i in range(1,self.gx-1):
                 for j in range(1,self.gy-1):
                     for k in range(1,1+vwgz,VW):
-                        self.fld.store[width=VW](Index(1-a,i,j,k), sixth * (
-                            self.fld.load[width=VW](a,i-1,j  ,k  ) + self.fld.load[width=VW](a,i+1,j  ,k  ) +
-                            self.fld.load[width=VW](a,i  ,j-1,k  ) + self.fld.load[width=VW](a,i  ,j+1,k  ) +
-                            self.fld.load[width=VW](a,i  ,j  ,k-1) + self.fld.load[width=VW](a,i  ,j  ,k+1)))
+                        var val_to_store = sixth * (
+                            self.fld.load[VW](a,i-1,j  ,k  ) + self.fld.load[VW](a,i+1,j  ,k  ) +
+                            self.fld.load[VW](a,i  ,j-1,k  ) + self.fld.load[VW](a,i  ,j+1,k  ) +
+                            self.fld.load[VW](a,i  ,j  ,k-1) + self.fld.load[VW](a,i  ,j  ,k+1))
+                        self.fld.store[VW](val_to_store, Index(1-a,i,j,k))
                     for k in range (vwgz+1, self.gz-1):
                         self.fld[Index(1-a,i,j,k)]= sixth * ( 
                             self.fld[a,i-1,j  ,k  ] + self.fld[a,i+1,j  ,k  ] +
@@ -352,21 +355,21 @@ fn run(gmin:Int, gmax:Int, gstep:Int, nswaps:Int=3) raises:
         phi.initialize()
         var thi=TField[DType.float32](n,n,n)
         @parameter
-        fn test_phi():
+        fn test_phi_fn():
             phi.iterate_simd[4](nswaps)
 
         @parameter
-        fn test_thi():
+        fn test_thi_fn():
             thi.iterate_simd[4](nswaps)
 
-        var rphi = benchmark.run[test_phi](max_runtime_secs=2, min_runtime_secs=0.1)
+        var rphi = benchmark.run[test_phi_fn](max_runtime_secs=2, min_runtime_secs=0.1)
         #_ = (phi,)
         var tphi = rphi.mean()
-        var rthi = benchmark.run[test_thi](max_runtime_secs=2, min_runtime_secs=0.1)
+        var rthi = benchmark.run[test_thi_fn](max_runtime_secs=2, min_runtime_secs=0.1)
         #_ = (thi,)
         var tthi = rthi.mean()
-        _ = pdatyp.itemset(idx, (n-2)**3/(tphi/nswaps)/1e9 )
-        _ = pdatyt.itemset(idx, (n-2)**3/(tthi/nswaps)/1e9 )
+        _ = pdatyp.itemset(idx, Float64((n-2)**3)/(tphi/Float64(nswaps))/1e9 )
+        _ = pdatyt.itemset(idx, Float64((n-2)**3)/(tthi/Float64(nswaps))/1e9 )
         print(n, pdatx[idx], tphi, tthi, rphi.iters() * nswaps, idx, pdatx[idx], pdatyp[idx],pdatyt[idx])
         idx += 1
     #report.print()
