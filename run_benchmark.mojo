@@ -3,8 +3,9 @@ from python import Python
 from jtc import Field
 from sys import simdwidthof
 
-#alias VW = 4 # simd vector width (sys function not working)
+  
 alias dtype = DType.float32  # default data type
+alias VW = simdwidthof[dtype]()
 
 fn run(gmin:Int, gmax:Int, gstep:Int, nswaps:Int=3, nthreads:List[Int]=[1]) raises -> List[List[Float64]]:
     #var np = Python.import_module("numpy")
@@ -29,7 +30,7 @@ fn run(gmin:Int, gmax:Int, gstep:Int, nswaps:Int=3, nthreads:List[Int]=[1]) rais
             var phi=Field[dtype](n,n,n)
             @parameter
             fn test_phi_fn():
-                _ = phi.iterate(nswaps,nblks=ith)
+                _ = phi.iterate[VW](nswaps,nblks=ith)
 
             var rphi = benchmark.run[test_phi_fn](max_runtime_secs=2, min_runtime_secs=0.1)
             var tphi = rphi.mean()
@@ -41,7 +42,8 @@ fn run(gmin:Int, gmax:Int, gstep:Int, nswaps:Int=3, nthreads:List[Int]=[1]) rais
     
     
 def main():
-    pltdata = run(4, 64, 4, 30, [1,2])  # run with grid sizes from 4 to 64 with step 4 and 30 swaps
+    var threads = [1,2,4,8]  # number of threads to test
+    pltdata = run(4, 200, 4, 10, threads)  # run with grid sizes from 4 to 64 with step 4 and 30 swaps
     #print("pltdata", len(pltdata[1]))
     
     var pyplt = Python.import_module("matplotlib.pyplot")
@@ -55,7 +57,7 @@ def main():
         for y in pltdata[i]:
             pydata.append(y)
         var y_data = np.array(pydata)
-        _ = pyplt.plot(x_data, y_data, label="nthreads: " + String(i))
+        _ = pyplt.plot(x_data, y_data, label="nthreads: " + String(threads[i-1]))
 
     _ = pyplt.xlabel("Grid size")
     _ = pyplt.ylabel("LUPS (billion)")

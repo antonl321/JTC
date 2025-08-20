@@ -64,7 +64,7 @@ struct Field[DT: DType]:
                     result.bcurr.store(p, self.bcurr[p] + rhs.bcurr[p])
         return result
 
-    fn __del__(owned self):
+    fn __del__(deinit self):
         self.data.free()
         #print("done del")
         
@@ -139,7 +139,7 @@ struct Field[DT: DType]:
     fn bidx(self, i:Int, j:Int, k:Int) -> SIMD[DType.int64,1]:
         return k*self.gy*self.gx + j*self.gx +i
 
-    fn iterate(mut self, niter: Int, nblks: Int = 1, test_it: Bool = False) -> SIMD[DT,1]:
+    fn iterate_scalar(mut self, niter: Int, nblks: Int = 1, test_it: Bool = False) -> SIMD[DT,1]:
         alias sixth = 1.0/6.0 #SIMD[DT,1](1.0)/SIMD[DT,1](6.0)
         
         var norm_start = SIMD[DT,1](0.0)
@@ -182,8 +182,8 @@ struct Field[DT: DType]:
             #print(self.bcurr[self.bidx(1,1,1)],self.bnext[self.bidx(1,1,1)])
 
     @always_inline
-    fn iterate_simd[VW:Int](mut self, niter: Int, nblks: Int = 1, test_it: Bool = False) -> SIMD[DT,1]:
-        alias sixth = 1.0/6.0
+    fn iterate[VW:Int](mut self, niter: Int, nblks: Int = 1, test_it: Bool = False) -> SIMD[DT,1]:
+        alias sixth = 1/SIMD[DT,1](6.0)
         var norm_start = SIMD[DT,1](0.0)
         if test_it:
             norm_start = self.norm2()
@@ -195,10 +195,14 @@ struct Field[DT: DType]:
             var blk_start: Int
             var blk_end: Int
             blk_size = (self.gy-2)//nblks
-            blk_start = blkidx * blk_size + 1
-            blk_end = blk_start + blk_size
-            if blkidx == nblks - 1:
-                blk_end = self.gy - 1
+            # distribute blocks evenly
+            remaining = (self.gy-2) % nblks
+            if blkidx < remaining:
+                blk_start = 1+ blkidx * blk_size + blkidx
+                blk_end = blk_start + blk_size + 1
+            else:
+                blk_start = 1 + blkidx * blk_size + remaining
+                blk_end = blk_start + blk_size
             var igx = self.gx-2
             var vwgx = igx - igx%VW 
             for k in range(1,self.gz-1):
