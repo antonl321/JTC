@@ -2,34 +2,41 @@ from testing import assert_almost_equal
 from jtc import Field
 from sys import simdwidthof
 
-def test_scalar[dtype:DType]():
+def test_scalar_float32():
+    alias dtype = DType.float32
+    atol = 1e-6
     a = Field[dtype](14,9,12)
     x = a.iterate(5,test_it=True)
-    #atol = 0.0
-    #print("norm2: ", a.norm2(), x)
-    if dtype == DType.float32:
-        atol=1e-6
-    else:
-        atol=1.e-14
-    #print("atol=",atol)
     assert_almost_equal(x, SIMD[dtype,1](0.0), atol=atol, rtol=0.0)
 
-def test_vectorized[dtype:DType,VW:Int]():
+def test_scalar_float64():
+    alias dtype = DType.float64
+    atol = 1e-14
+    a = Field[dtype](14,9,12)
+    x = a.iterate(5,test_it=True)
+    assert_almost_equal(x, SIMD[dtype,1](0.0), atol=atol, rtol=0.0)
+
+
+def test_vectorized_float32():
+    alias dtype = DType.float32
+    alias VW = simdwidthof[dtype]()
+    atol = 1e-6
     a = Field[dtype](14,9,12)
     x = a.iterate_simd[VW](5,test_it=True)
-    #atol = 0.0
-    #print("norm2: ", a.norm2(), x)
-    if dtype == DType.float32:
-        atol=1e-6
-    else:
-        atol=1.e-14
-    #print("atol=",atol)
+    assert_almost_equal(x, SIMD[dtype,1](0.0), atol=atol, rtol=0.0)
+
+def test_vectorized_and_parallelized_float32():
+    alias dtype = DType.float32
+    alias VW = simdwidthof[dtype]()
+    atol = 1e-6
+    a = Field[dtype](24,27,12)
+    x = a.iterate_simd[VW](5,nblks=3,test_it=True)
     assert_almost_equal(x, SIMD[dtype,1](0.0), atol=atol, rtol=0.0)
 
 
 def main():
-    test_scalar[DType.float32]()
-    test_scalar[DType.float64]()
-    #alias VW = simdwidthof[DType.float32]()
-    test_vectorized[DType.float32,simdwidthof[DType.float32]()]()
-    test_vectorized[DType.float64,simdwidthof[DType.float64]()]()
+    test_scalar_float32()
+    test_scalar_float64()
+    test_vectorized_float32()
+    test_vectorized_and_parallelized_float32()
+    #print("All tests passed.")

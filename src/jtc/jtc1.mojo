@@ -125,6 +125,7 @@ struct Field[DT: DType]:
         alias kz = 1.0
         self.eigenval = (cos(pi*kx/(self.gx-1)) + cos(pi*ky/(self.gy-1)) + cos(pi*kz/(self.gz-1)))/3.0
 
+    @always_inline
     fn norm2 (self) -> SIMD[DT,1]:
         var s : SIMD[DT, 1] = 0.0
         for k in range(1,self.gz-1):
@@ -134,6 +135,7 @@ struct Field[DT: DType]:
                    s = s + self.bcurr[self.bidx(i,j,k)] ** 2
         return s
     
+    @always_inline
     fn bidx(self, i:Int, j:Int, k:Int) -> SIMD[DType.int64,1]:
         return k*self.gy*self.gx + j*self.gx +i
 
@@ -179,18 +181,28 @@ struct Field[DT: DType]:
             #print("iter test: ",  sqrt(self.norm2()/norm_start) - self.eigenval**niter,norm_start, self.norm2(), sixth, self.eigenval)
             #print(self.bcurr[self.bidx(1,1,1)],self.bnext[self.bidx(1,1,1)])
 
-
-    fn iterate_simd[VW:Int](mut self, niter: Int, test_it: Bool = False) -> SIMD[DT,1]:
+    @always_inline
+    fn iterate_simd[VW:Int](mut self, niter: Int, nblks: Int = 1, test_it: Bool = False) -> SIMD[DT,1]:
         alias sixth = 1.0/6.0
         var norm_start = SIMD[DT,1](0.0)
         if test_it:
             norm_start = self.norm2()
 
-        var igx = self.gx-2
-        var vwgx = igx - igx%VW 
-        for iter in range(niter):
+        # parallelize over blocks in y direction
+        @parameter
+        fn iterate_block(blkidx: Int):
+            var blk_size: Int
+            var blk_start: Int
+            var blk_end: Int
+            blk_size = (self.gy-2)//nblks
+            blk_start = blkidx * blk_size + 1
+            blk_end = blk_start + blk_size
+            if blkidx == nblks - 1:
+                blk_end = self.gy - 1
+            var igx = self.gx-2
+            var vwgx = igx - igx%VW 
             for k in range(1,self.gz-1):
-                for j in range(1,self.gy-1):
+                for j in range(blk_start,blk_end):
                     for i in range(1,1+vwgx,VW):
                         var val_to_store = sixth * ( 
                             self.bcurr.load[width=VW](self.bidx(i-1,j  ,k  )) + self.bcurr.load[width=VW](self.bidx(i+1,j  ,k  )) +
@@ -203,6 +215,8 @@ struct Field[DT: DType]:
                             self.bcurr[self.bidx(i  ,j-1,k  )] + self.bcurr[self.bidx(i  ,j+1,k  )] +
                             self.bcurr[self.bidx(i  ,j  ,k-1)] + self.bcurr[self.bidx(i  ,j  ,k+1)])
 
+        for _ in range(niter):       
+            parallelize[iterate_block](nblks, nblks)
             var aux = self.bcurr
             self.bcurr = self.bnext
             self.bnext = aux
