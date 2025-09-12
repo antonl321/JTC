@@ -1,13 +1,13 @@
 import benchmark
 from python import Python
 from jtc import Field
-from sys import simdwidthof
+import sys
 
   
 alias dtype = DType.float32  # default data type
-alias VW = simdwidthof[dtype]()
+alias VW = sys.simd_width_of[dtype]()
 
-fn run(gmin:Int, gmax:Int, gstep:Int, nswaps:Int=3, nthreads:List[Int]=[1]) raises -> List[List[Float64]]:
+fn run(gmin:Int, gmax:Int, gstep:Int, nswaps:Int=3, niters:Int=10, nthreads:List[Int]=[1]) raises -> List[List[Float64]]:
     #var np = Python.import_module("numpy")
     var pltdata =List[List[Float64]]()
     var pdatx = List[Float64]()
@@ -20,32 +20,41 @@ fn run(gmin:Int, gmax:Int, gstep:Int, nswaps:Int=3, nthreads:List[Int]=[1]) rais
     #print(pdatx)
     pltdata.append(pdatx)
     
-    print("N   time  Swaps  LUPS")
-    for ith in nthreads:
-        print("nthreads", ith)
-        var idx = 0
-        var pdaty = List[Float64]()
-        for n in range(gmin,gmax+1,gstep):
-            print("min max n", gmin, gmax, n, idx)
-            var phi=Field[dtype](n,n,n)
-            @parameter
-            fn test_phi_fn():
-                _ = phi.iterate[VW](nswaps,nblks=ith)
-
-            var rphi = benchmark.run[test_phi_fn](max_runtime_secs=2, min_runtime_secs=0.1)
-            var tphi = rphi.mean()
-            pdaty.append(Float64((n-2)**3)/(tphi/Float64(nswaps))/1e9) 
-            print(ith, n, pdatx[idx], tphi, rphi.iters() * nswaps, idx, pdatx[idx], pdaty[idx])
-            idx += 1
-        pltdata.append(pdaty)
+    with open("benchmark_mojo_output.txt", "w") as fout:
+        #benchmark.set_output(fout)
+        fout.write("# threads gx gy gz iters min mean max \n")
+        for ith in nthreads:
+            #print("nthreads", ith)
+            var idx = 0
+            var pdaty = List[Float64]()
+            for n in range(gmin,gmax+1,gstep):
+                #print("min max n", gmin, gmax, n, idx)
+                var phi=Field[dtype](n,n,n)
+                @parameter
+                fn test_phi_fn():
+                    _ = phi.iterate[VW](nswaps,nblks=ith)
+                # run params set to match the C version
+                var rphi = benchmark.run[test_phi_fn](max_iters=niters, min_runtime_secs=0.2) #(max_runtime_secs=100000000, min_runtime_secs=0, max_iters=niters)
+                var tphi = rphi.mean()
+                rphi.print_full()
+                pdaty.append(Float64((n-2)**3)/(tphi/Float64(nswaps))/1e9)
+                fout.write(String(ith, n, n, n, rphi.iters(), 
+                    rphi.min(), rphi.mean(), rphi.max(), "\n", sep=" "))
+                #print(ith, n, n, rphi.iters(), rphi.min()/Float64(nswaps), rphi.mean()/Float64(nswaps), rphi.max()/Float64(nswaps),'\n')
+                #print(pdatx[idx], tphi, rphi.iters() * nswaps, idx, pdatx[idx], pdaty[idx])
+                idx += 1
+            pltdata.append(pdaty)
     return pltdata
     
     
 def main():
+    plotperf = True
     var threads = [1,2,4,8]  # number of threads to test
-    pltdata = run(4, 200, 4, 10, threads)  # run with grid sizes from 4 to 64 with step 4 and 30 swaps
+    pltdata = run(180, 200, 4, 3, 10, threads)  # run with grid sizes from 4 to 64 with step 4, 3 swaps 10 iterations
     #print("pltdata", len(pltdata[1]))
     
+    if not plotperf:
+        return
     var pyplt = Python.import_module("matplotlib.pyplot")
     var np = Python.import_module("numpy")
     var pylist = Python.list()
